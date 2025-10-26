@@ -109,9 +109,13 @@ class VideoFrame(ModuleFrame):
         button_text = "Disable Video" if self.enabled else "Enable Video"
         self.video_button.config(text=button_text)
         
-        # Clear local video slot when disabling video
+        # IMMEDIATELY clear local video slot when disabling video
         if not self.enabled:
             self._clear_local_video_slot()
+            # Force immediate GUI update to show black screen
+            if hasattr(self, 'video_display'):
+                self.video_display.update_idletasks()
+                self.video_display.update()
         
         if self.video_callback:
             self.video_callback(self.enabled)
@@ -122,35 +126,43 @@ class VideoFrame(ModuleFrame):
             if 0 in self.video_slots:
                 slot = self.video_slots[0]
                 if self._widget_exists(slot['frame']):
-                    # Clear all widgets from the slot to show blank
-                    for child in slot['frame'].winfo_children():
-                        # Clear image references from video widgets to prevent last frame caching
+                    # IMMEDIATELY destroy ALL widgets to remove last frame
+                    children_to_destroy = list(slot['frame'].winfo_children())
+                    for child in children_to_destroy:
+                        # Aggressively clear any image references
                         if isinstance(child, tk.Label) and hasattr(child, 'image'):
                             child.image = None
-                            child.configure(image='')
+                            child.configure(image='', text='')
+                        # Immediately destroy the widget
                         child.destroy()
                     
-                    # Force update to ensure widgets are destroyed
+                    # Force immediate update to clear the display
                     slot['frame'].update_idletasks()
+                    slot['frame'].update()
                     
-                    # Create blank placeholder (no text, just black background)
+                    # Create blank black screen placeholder IMMEDIATELY
                     placeholder_label = tk.Label(
                         slot['frame'], 
                         text="",  # No text - completely blank
-                        fg='lightgreen', 
-                        bg='black',
-                        font=('Arial', 10),
+                        fg='black', 
+                        bg='black',  # Pure black background
+                        font=('Arial', 1),  # Minimal font
                         bd=0,
-                        highlightthickness=0
+                        highlightthickness=0,
+                        relief='flat'
                     )
                     placeholder_label.pack(fill='both', expand=True, padx=0, pady=0)
+                    
+                    # Force immediate display update
+                    placeholder_label.update_idletasks()
+                    placeholder_label.update()
                     
                     # Update slot references
                     slot['label'] = placeholder_label
                     slot['participant_id'] = 'local'
                     slot['active'] = False
                     
-                    logger.info("Local video slot cleared - showing blank black screen")
+                    logger.info("Local video slot IMMEDIATELY cleared - showing blank black screen")
         except Exception as e:
             logger.error(f"Error clearing local video slot: {e}")
     
@@ -310,19 +322,25 @@ class VideoFrame(ModuleFrame):
     def update_local_video(self, frame):
         """Update local video display with proper frame sequencing."""
         try:
+            # CRITICAL: Do not update video if video is disabled
+            if not self.enabled:
+                logger.debug("Video is disabled - ignoring frame update")
+                return
+            
             # Use direct stable video display for proper frame sequencing
             self._update_local_video_safe_stable(frame)
             
         except Exception as e:
             logger.error(f"Local video display error: {e}")
-            # Fallback to ultra-stable system if needed
-            try:
-                client_id = 'local'
-                if 0 in self.video_slots:
-                    ultra_stable_manager.register_video_slot(client_id, self.video_slots[0])
-                    ultra_stable_manager.update_video_frame(client_id, frame)
-            except Exception as fallback_error:
-                logger.error(f"Fallback local video error: {fallback_error}")
+            # Fallback to ultra-stable system if needed (only if video is enabled)
+            if self.enabled:
+                try:
+                    client_id = 'local'
+                    if 0 in self.video_slots:
+                        ultra_stable_manager.register_video_slot(client_id, self.video_slots[0])
+                        ultra_stable_manager.update_video_frame(client_id, frame)
+                except Exception as fallback_error:
+                    logger.error(f"Fallback local video error: {fallback_error}")
     
     def _widget_exists(self, widget):
         """Check if a tkinter widget still exists and is valid."""
