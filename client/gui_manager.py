@@ -173,28 +173,43 @@ class VideoFrame(ModuleFrame):
             for slot_id, slot in self.video_slots.items():
                 if slot.get('participant_id') == client_id:
                     if self._widget_exists(slot['frame']):
-                        # Clear all widgets from the slot to show blank
-                        for child in slot['frame'].winfo_children():
+                        # IMMEDIATELY destroy ALL widgets to remove last frame
+                        children_to_destroy = list(slot['frame'].winfo_children())
+                        for child in children_to_destroy:
+                            # Aggressively clear any image references
+                            if isinstance(child, tk.Label) and hasattr(child, 'image'):
+                                child.image = None
+                                child.configure(image='', text='')
+                            # Immediately destroy the widget
                             child.destroy()
                         
-                        # Create blank placeholder (no text, just black background)
+                        # Force immediate update to clear the display
+                        slot['frame'].update_idletasks()
+                        slot['frame'].update()
+                        
+                        # Create blank black screen placeholder IMMEDIATELY
                         placeholder_label = tk.Label(
                             slot['frame'], 
                             text="",  # No text - completely blank
-                            fg='white', 
-                            bg='black',
-                            font=('Arial', 10),
+                            fg='black', 
+                            bg='black',  # Pure black background
+                            font=('Arial', 1),  # Minimal font
                             bd=0,
-                            highlightthickness=0
+                            highlightthickness=0,
+                            relief='flat'
                         )
                         placeholder_label.pack(fill='both', expand=True, padx=0, pady=0)
+                        
+                        # Force immediate display update
+                        placeholder_label.update_idletasks()
+                        placeholder_label.update()
                         
                         # Update slot references
                         slot['label'] = placeholder_label
                         slot['participant_id'] = None
                         slot['active'] = False
                         
-                        logger.info(f"Remote video slot cleared for {client_id} - showing blank")
+                        logger.info(f"Remote video slot IMMEDIATELY cleared for {client_id} - showing blank black screen")
                     break
         except Exception as e:
             logger.error(f"Error clearing remote video slot for {client_id}: {e}")
@@ -502,6 +517,13 @@ class VideoFrame(ModuleFrame):
         """Update remote video display with enhanced error handling."""
         try:
             logger.debug(f"Updating remote video for client {client_id}")
+            
+            # CRITICAL: Check if this participant's video is enabled
+            if hasattr(self, 'participant_videos') and client_id in self.participant_videos:
+                video_enabled = self.participant_videos[client_id].get('video_enabled', True)
+                if not video_enabled:
+                    logger.debug(f"Video disabled for {client_id} - ignoring frame update")
+                    return
             
             # Get or assign video slot
             slot_id = self._get_video_slot_stable(client_id)
