@@ -117,19 +117,19 @@ class VideoFrame(ModuleFrame):
             self.video_callback(self.enabled)
     
     def _clear_local_video_slot(self):
-        """Clear the local video slot and show placeholder when video is disabled."""
+        """Clear the local video slot and show blank placeholder when video is disabled."""
         try:
             if 0 in self.video_slots:
                 slot = self.video_slots[0]
                 if self._widget_exists(slot['frame']):
-                    # Clear all widgets from the slot
+                    # Clear all widgets from the slot to show blank
                     for child in slot['frame'].winfo_children():
                         child.destroy()
                     
-                    # Create placeholder content
+                    # Create blank placeholder (no text, just black background)
                     placeholder_label = tk.Label(
                         slot['frame'], 
-                        text="Your Video\n(Enable video)", 
+                        text="",  # No text - completely blank
                         fg='lightgreen', 
                         bg='black',
                         font=('Arial', 10)
@@ -141,9 +141,40 @@ class VideoFrame(ModuleFrame):
                     slot['participant_id'] = 'local'
                     slot['active'] = False
                     
-                    logger.info("Local video slot cleared")
+                    logger.info("Local video slot cleared - showing blank")
         except Exception as e:
             logger.error(f"Error clearing local video slot: {e}")
+    
+    def clear_remote_video_slot(self, client_id: str):
+        """Clear a remote video slot and show blank when video is disabled."""
+        try:
+            # Find the slot for this client
+            for slot_id, slot in self.video_slots.items():
+                if slot.get('participant_id') == client_id:
+                    if self._widget_exists(slot['frame']):
+                        # Clear all widgets from the slot to show blank
+                        for child in slot['frame'].winfo_children():
+                            child.destroy()
+                        
+                        # Create blank placeholder (no text, just black background)
+                        placeholder_label = tk.Label(
+                            slot['frame'], 
+                            text="",  # No text - completely blank
+                            fg='white', 
+                            bg='black',
+                            font=('Arial', 10)
+                        )
+                        placeholder_label.pack(expand=True)
+                        
+                        # Update slot references
+                        slot['label'] = placeholder_label
+                        slot['participant_id'] = None
+                        slot['active'] = False
+                        
+                        logger.info(f"Remote video slot cleared for {client_id} - showing blank")
+                    break
+        except Exception as e:
+            logger.error(f"Error clearing remote video slot for {client_id}: {e}")
     
     def _create_video_slots(self):
         """Create video slots in a 2x2 grid with consistent sizing."""
@@ -178,20 +209,37 @@ class VideoFrame(ModuleFrame):
     # Include all the existing video methods from the original file
     def update_video_feeds(self, participants: Dict[str, Any]):
         """Update video feed display with participant information."""
+        # Update participant info for username display
+        for participant_id, participant_info in participants.items():
+            username = participant_info.get('username', '')
+            video_enabled = participant_info.get('video_enabled', False)
+            self.update_participant_info(participant_id, username, video_enabled)
+        
         # Get participants with video enabled
         active_participants = [p for p in participants.values() 
                              if p.get('video_enabled', False)]
         
-        # Clear all slots first to prevent duplicates
+        # Clear all remote slots first to prevent duplicates
         for slot_id, slot in self.video_slots.items():
             if slot_id > 0:  # Don't clear slot 0 (local video)
-                if self._widget_exists(slot['label']):
-                    slot['label'].config(
-                        text=f"Video Slot {slot_id+1}\nNo participant",
-                        fg='white'
+                if self._widget_exists(slot['frame']):
+                    # Clear all widgets from the slot to show blank
+                    for child in slot['frame'].winfo_children():
+                        child.destroy()
+                    
+                    # Create blank placeholder
+                    placeholder_label = tk.Label(
+                        slot['frame'], 
+                        text="",  # No text - completely blank
+                        fg='white', 
+                        bg='black',
+                        font=('Arial', 10)
                     )
-                slot['participant_id'] = None
-                slot['active'] = False
+                    placeholder_label.pack(expand=True)
+                    
+                    slot['label'] = placeholder_label
+                    slot['participant_id'] = None
+                    slot['active'] = False
         
         # Assign participants to available slots (skip slot 0 for local video)
         assigned_participants = set()  # Track assigned participants to prevent duplicates
@@ -210,11 +258,22 @@ class VideoFrame(ModuleFrame):
                 slot = self.video_slots[slot_index]
                 
                 # Update slot with participant info
-                if self._widget_exists(slot['label']):
-                    slot['label'].config(
+                if self._widget_exists(slot['frame']):
+                    # Clear existing widgets
+                    for child in slot['frame'].winfo_children():
+                        child.destroy()
+                    
+                    # Create placeholder with participant name
+                    placeholder_label = tk.Label(
+                        slot['frame'], 
                         text=f"{participant_name}\n{'🎥 Video Active' if participant.get('video_enabled') else '📷 Video Off'}",
-                        fg='lightgreen' if participant.get('video_enabled') else 'lightgray'
+                        fg='lightgreen' if participant.get('video_enabled') else 'lightgray',
+                        bg='black',
+                        font=('Arial', 10)
                     )
+                    placeholder_label.pack(expand=True)
+                    slot['label'] = placeholder_label
+                
                 slot['participant_id'] = participant_id
                 slot['active'] = True
                 
@@ -341,8 +400,8 @@ class VideoFrame(ModuleFrame):
                     video_widget.pack(fill='both', expand=True)
                     video_widget.image = photo
                     
-                    # Create name label at top-left corner
-                    name_text = "You (Local)" if client_id == 'local' else f"Client {client_id[:8]}"
+                    # Create name label at top-left corner with proper username
+                    name_text = self._get_display_name(client_id)
                     name_label = tk.Label(
                         parent_frame,
                         text=name_text,
@@ -355,6 +414,31 @@ class VideoFrame(ModuleFrame):
                     
         except Exception as e:
             logger.error(f"Error creating stable video display for {client_id}: {e}")
+    
+    def _get_display_name(self, client_id: str) -> str:
+        """Get display name for a client, showing username if available."""
+        try:
+            if client_id == 'local':
+                return "You (Local)"
+            
+            # Try to get username from participants
+            if hasattr(self, 'participant_videos') and client_id in self.participant_videos:
+                participant_info = self.participant_videos[client_id]
+                username = participant_info.get('username', '')
+                if username and username != client_id:
+                    return username
+            
+            # Fallback to showing last 8 characters of client ID
+            if len(client_id) > 8:
+                return f"User {client_id[-8:]}"
+            else:
+                return f"User {client_id}"
+        except Exception as e:
+            logger.error(f"Error getting display name for {client_id}: {e}")
+            if len(client_id) > 8:
+                return f"User {client_id[-8:]}"
+            else:
+                return f"User {client_id}"
     
     def update_remote_video(self, client_id: str, frame):
         """Update remote video display with enhanced error handling."""
@@ -380,6 +464,24 @@ class VideoFrame(ModuleFrame):
                 
         except Exception as e:
             logger.error(f"Error updating remote video for {client_id}: {e}")
+    
+    def update_participant_info(self, client_id: str, username: str = None, video_enabled: bool = None):
+        """Update participant information for username display."""
+        try:
+            if not hasattr(self, 'participant_videos'):
+                self.participant_videos = {}
+            
+            if client_id not in self.participant_videos:
+                self.participant_videos[client_id] = {}
+            
+            if username is not None:
+                self.participant_videos[client_id]['username'] = username
+            if video_enabled is not None:
+                self.participant_videos[client_id]['video_enabled'] = video_enabled
+                
+            logger.debug(f"Updated participant info for {client_id}: username={username}, video={video_enabled}")
+        except Exception as e:
+            logger.error(f"Error updating participant info for {client_id}: {e}")
     
     def _get_video_slot_stable(self, client_id: str) -> Optional[int]:
         """Get video slot with enhanced positioning - remote video goes to top-right."""

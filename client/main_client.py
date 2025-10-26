@@ -330,6 +330,9 @@ class CollaborationClient:
                 self._start_video_capture()
             else:
                 self._stop_video_capture()
+                # Clear local video slot to show blank instead of last frame
+                if hasattr(self.gui_manager, 'video_frame') and self.gui_manager.video_frame:
+                    self.gui_manager.video_frame._clear_local_video_slot()
         
         except Exception as e:
             logger.error(f"Error toggling video: {e}")
@@ -677,6 +680,13 @@ class CollaborationClient:
                 participants = self.connection_manager.get_participants()
                 client_id = self.connection_manager.get_client_id()
                 self.gui_manager.update_participants(participants, client_id)
+                
+                # Check if any participant disabled video and clear their slot
+                if hasattr(self.gui_manager, 'video_frame') and self.gui_manager.video_frame:
+                    for participant_id, participant_info in participants.items():
+                        if not participant_info.get('video_enabled', False):
+                            # Clear remote video slot if video is disabled
+                            self.gui_manager.video_frame.clear_remote_video_slot(participant_id)
         
         except Exception as e:
             logger.error(f"Error handling participant status update: {e}")
