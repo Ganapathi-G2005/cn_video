@@ -124,7 +124,14 @@ class VideoFrame(ModuleFrame):
                 if self._widget_exists(slot['frame']):
                     # Clear all widgets from the slot to show blank
                     for child in slot['frame'].winfo_children():
+                        # Clear image references from video widgets to prevent last frame caching
+                        if isinstance(child, tk.Label) and hasattr(child, 'image'):
+                            child.image = None
+                            child.configure(image='')
                         child.destroy()
+                    
+                    # Force update to ensure widgets are destroyed
+                    slot['frame'].update_idletasks()
                     
                     # Create blank placeholder (no text, just black background)
                     placeholder_label = tk.Label(
@@ -132,16 +139,18 @@ class VideoFrame(ModuleFrame):
                         text="",  # No text - completely blank
                         fg='lightgreen', 
                         bg='black',
-                        font=('Arial', 10)
+                        font=('Arial', 10),
+                        bd=0,
+                        highlightthickness=0
                     )
-                    placeholder_label.pack(expand=True)
+                    placeholder_label.pack(fill='both', expand=True, padx=0, pady=0)
                     
                     # Update slot references
                     slot['label'] = placeholder_label
                     slot['participant_id'] = 'local'
                     slot['active'] = False
                     
-                    logger.info("Local video slot cleared - showing blank")
+                    logger.info("Local video slot cleared - showing blank black screen")
         except Exception as e:
             logger.error(f"Error clearing local video slot: {e}")
     
@@ -162,9 +171,11 @@ class VideoFrame(ModuleFrame):
                             text="",  # No text - completely blank
                             fg='white', 
                             bg='black',
-                            font=('Arial', 10)
+                            font=('Arial', 10),
+                            bd=0,
+                            highlightthickness=0
                         )
-                        placeholder_label.pack(expand=True)
+                        placeholder_label.pack(fill='both', expand=True, padx=0, pady=0)
                         
                         # Update slot references
                         slot['label'] = placeholder_label
@@ -188,16 +199,17 @@ class VideoFrame(ModuleFrame):
             # Ensure slot frame expands to fill grid cell
             slot_frame.grid_propagate(False)  # Prevent frame from shrinking
             
-            # Placeholder content
-            slot_text = "Your Video\n(Enable video)" if i == 0 else f"Video Slot {i+1}\nNo participant"
+            # Placeholder content - blank for all slots to match your video style
             placeholder_label = tk.Label(
                 slot_frame, 
-                text=slot_text, 
-                fg='lightgreen' if i == 0 else 'white', 
+                text="", 
+                fg='white', 
                 bg='black',
-                font=('Arial', 10)
+                font=('Arial', 10),
+                bd=0,
+                highlightthickness=0
             )
-            placeholder_label.pack(expand=True)
+            placeholder_label.pack(fill='both', expand=True, padx=0, pady=0)
             
             self.video_slots[i] = {
                 'frame': slot_frame,
@@ -233,9 +245,11 @@ class VideoFrame(ModuleFrame):
                         text="",  # No text - completely blank
                         fg='white', 
                         bg='black',
-                        font=('Arial', 10)
+                        font=('Arial', 10),
+                        bd=0,
+                        highlightthickness=0
                     )
-                    placeholder_label.pack(expand=True)
+                    placeholder_label.pack(fill='both', expand=True, padx=0, pady=0)
                     
                     slot['label'] = placeholder_label
                     slot['participant_id'] = None
@@ -263,16 +277,29 @@ class VideoFrame(ModuleFrame):
                     for child in slot['frame'].winfo_children():
                         child.destroy()
                     
-                    # Create placeholder with participant name
+                    # Create blank placeholder (no text, just black background like local video)
                     placeholder_label = tk.Label(
                         slot['frame'], 
-                        text=f"{participant_name}\n{'🎥 Video Active' if participant.get('video_enabled') else '📷 Video Off'}",
-                        fg='lightgreen' if participant.get('video_enabled') else 'lightgray',
+                        text="",  # No text - completely blank like local video
+                        fg='white', 
                         bg='black',
-                        font=('Arial', 10)
+                        font=('Arial', 10),
+                        bd=0,
+                        highlightthickness=0
                     )
-                    placeholder_label.pack(expand=True)
+                    placeholder_label.pack(fill='both', expand=True, padx=0, pady=0)
                     slot['label'] = placeholder_label
+                    
+                    # Create username label at top-left corner (similar to local video)
+                    name_label = tk.Label(
+                        slot['frame'],
+                        text=participant_name,
+                        fg='lightblue',
+                        bg='black',
+                        font=('Arial', 8, 'bold')
+                    )
+                    # Position at top-left with small padding
+                    name_label.place(x=5, y=5)
                 
                 slot['participant_id'] = participant_id
                 slot['active'] = True
@@ -380,7 +407,7 @@ class VideoFrame(ModuleFrame):
                 
                 # Find existing video widget or create new one
                 video_widgets = [child for child in parent_frame.winfo_children() 
-                               if isinstance(child, tk.Label) and hasattr(child, 'image')]
+                               if isinstance(child, tk.Label) and hasattr(child, 'image') and child.image is not None]
                 
                 if video_widgets:
                     # Update existing widget
@@ -389,15 +416,22 @@ class VideoFrame(ModuleFrame):
                     video_widget.image = photo
                 else:
                     # Create new widget only if necessary
-                    # Clear only placeholder labels, not video widgets
+                    # Clear placeholder labels and any stale video widgets without valid images
                     for child in parent_frame.winfo_children():
-                        if isinstance(child, tk.Label) and not hasattr(child, 'image'):
-                            if 'Video Slot' in child.cget('text') or 'Enable video' in child.cget('text'):
+                        if isinstance(child, tk.Label):
+                            # Remove placeholder labels
+                            if not hasattr(child, 'image') or child.image is None:
+                                if ('Video Slot' in child.cget('text') or 
+                                    'Enable video' in child.cget('text') or 
+                                    child.cget('text') == ''):  # Blank placeholders
+                                    child.destroy()
+                            # Remove stale video widgets with cleared images
+                            elif hasattr(child, 'image') and child.image is None:
                                 child.destroy()
                     
-                    # Create video widget that fills the entire slot
-                    video_widget = tk.Label(parent_frame, image=photo, bg='black')
-                    video_widget.pack(fill='both', expand=True)
+                    # Create video widget that fills the entire slot with no padding
+                    video_widget = tk.Label(parent_frame, image=photo, bg='black', bd=0, highlightthickness=0)
+                    video_widget.pack(fill='both', expand=True, padx=0, pady=0)
                     video_widget.image = photo
                     
                     # Create name label at top-left corner with proper username
@@ -419,7 +453,13 @@ class VideoFrame(ModuleFrame):
         """Get display name for a client, showing username if available."""
         try:
             if client_id == 'local':
-                return "You (Local)"
+                # Get the actual username from connection manager if available
+                if hasattr(self, 'participant_videos') and 'local' in self.participant_videos:
+                    participant_info = self.participant_videos['local']
+                    username = participant_info.get('username', '')
+                    if username:
+                        return username
+                return "You"  # Simple "You" instead of "You (Local)"
             
             # Try to get username from participants
             if hasattr(self, 'participant_videos') and client_id in self.participant_videos:
@@ -532,15 +572,17 @@ class VideoFrame(ModuleFrame):
                         for child in slot['frame'].winfo_children():
                             child.destroy()
                         
-                        # Create black screen placeholder
+                        # Create blank screen placeholder (no text, just black background)
                         black_label = tk.Label(
                             slot['frame'], 
-                            text="No Video", 
+                            text="", 
                             bg='black', 
                             fg='white',
-                            font=('Arial', 10)
+                            font=('Arial', 10),
+                            bd=0,
+                            highlightthickness=0
                         )
-                        black_label.pack(fill='both', expand=True)
+                        black_label.pack(fill='both', expand=True, padx=0, pady=0)
                         
                         # Update slot references
                         slot['video_widget'] = black_label
